@@ -1,0 +1,266 @@
+---
+title: "Exploring the BRFSS data"
+author: "Javier Noguera"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+```
+
+### Load data
+
+
+```{r load-data}
+load("brfss2013.RData")
+```
+
+```{r}
+dim(brfss2013)
+
+summary(brfss2013$sex)
+
+brfss2013 %>% 
+  group_by(X_state) %>% 
+  summarise(n=n()) %>% 
+  summarise(median_obs_state=median(n))
+```
+
+There are 491,775 observations and 330 columns and there are more women than men in the sample.
+We also can see that there is a median number of 7,858 observation per state. 
+
+* * *
+
+## Part 1: Data
+
+The Behavioral Risk Factor Surveillance System (BRFSS) is a collaborative project between all of the states in the United States (US) and participating US territories and the Centers for Disease Control and Prevention (CDC). The BRFSS is administered and supported by CDC’s Population Health Surveillance Branch, under the Division of Population Health at the National Center for Chronic Disease Prevention and Health Promotion. BRFSS is an ongoing surveillance system designed to measure behavioral risk factors for the non-institutionalized adult population (18 years of age and older) residing in the US.
+
+### Sampling Design
+In order to conduct the BRFSS, states obtain samples of telephone numbers from CDC.  The BRFSS uses two samples: one for landline telephone respondents and one for cellular telephone respondents.
+Since landline telephones are often shared among persons living within a residence, household
+sampling is used in the landline sample. Household sampling requires interviewers to collect
+information on the number of adults living within a residence and then select randomly from all
+eligible adults. Cellular telephone respondents are weighted as single adult households. 
+
+### The Landline Sample
+Disproportionate stratified sampling (DSS) has been used for the landline sample.
+DDS draws telephone numbers from two strata (lists) that are based on the presumed density of
+known telephone household numbers. In this design, telephone numbers are classified into strata
+that are either high density (listed 1+ block telephone numbers) or medium density (not listed
+1+ block telephone numbers) to yield residential telephone numbers. 
+
+### The Cellular Telephone Sample
+The cellular telephone sample is randomly generated from a sampling frame of confirmed
+cellular area code and prefix combinations. Cellular telephone respondents are randomly selected
+with each having equal probability of selection. States complete approximately 20% of their
+completed interviews with respondents on cell phones. 
+
+### Sample Size
+Sample size refers to the number of telephone numbers that must be called within a given period
+of time. The BRFSS goal is to support at least 4,000 interviews per state each year. Factors
+influencing sample size include the cost involved in data collection for a larger sample and the
+states’ need for obtaining estimates for subpopulations within states
+
+### Causality
+BRFSS in an observational study because data is collected only by monitoring what occurs. We can't make causal conclusions based on observational data and we can only show associations.
+
+### Generalizability
+The study was made using random sampling based on stratified sampling method and the sample size is less than the 10% of the population to suggest independence of the samples hence we can draw inference about US population.
+
+* * *
+
+## Part 2: Research questions
+
+**Research quesion 1:**
+Is regular physical activity related to smoke or drink behaviors? 
+
+It would be interesting to know if an active person is more likely to avoid smoke or drink also if smokers avoid physical activity.
+Although we can't draw causal conclusions we can see if there is any relationship.
+
+**Research quesion 2:**
+Which states have less % of retired people that do not have medical insurance? 
+
+Medical insurance is most needed for the retired people and can become a big problem for states that then need to provide some additional state help. It would be good to see which states are lagging in this topic.
+
+**Research quesion 3:**
+Is the amount of sleep related to the amount of hours a person worked? How is it different based on gender?
+
+We want to see if overwork means more hours of sleep or not and how it is different based on gender.
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+**Research quesion 1:**
+Is regular physical activity related to smoke or drink behaviors? 
+
+First we will filter the observations that don't have information about smoking, drinking or physical activities habits.
+
+We also define that a person smokes if smokes every day or smoke some days and drinks if it drink at least one drink per day. So we will focus both on occasional and recurrent consumption.
+
+
+```{r}
+activity_smoke_drink <- brfss2013 %>%
+  filter(!is.na(exerany2), !is.na(smokday2), !is.na(X_drnkdy4)) %>%
+  mutate(activity_recently=(exerany2)) %>%
+  mutate(smoke=ifelse((smokday2=='Every day' | smokday2=='Some days'),'Yes','No')) %>%
+  mutate(drink=ifelse((X_drnkdy4==0),'No','Yes')) %>%    
+  group_by(activity_recently,smoke, drink) %>%
+  summarize(n=n())
+
+print(activity_smoke_drink)
+
+```
+
+
+Now we will calculate the percentages
+
+```{r}
+activity_smoke_drink <- activity_smoke_drink %>%
+   group_by(activity_recently) %>% 
+   mutate(total_activity_rencently=sum(n)) %>%
+   group_by(activity_recently, smoke, drink) %>%
+   mutate(percentage=(n/total_activity_rencently)*100) %>%
+   select(activity_recently, smoke,  drink, percentage)
+
+print(activity_smoke_drink)
+```
+
+We can see some interesting and unexpected numbers here. 
+
+There is a big percentage of people that does physical activity and drinks. There are more persons that does not drink or smoke and they don't do physical activity than do physical activity. 
+At the same time there are more people that smokes without doing physical activity.
+
+
+Let's summarize the relationship between doing physical activities and smokes or drinks in a plot.
+
+```{r}
+activity_smoke_drink <- activity_smoke_drink %>% 
+  mutate(smoke_or_drink=ifelse((smoke=='Yes' | drink=='Yes'), 'Yes','No'))
+
+activity_smoke_drink$activity_recently <- factor(activity_smoke_drink$activity_recently, levels = c('No','Yes'))
+
+ggplot(data=activity_smoke_drink, aes(activity_recently, y=percentage, fill=smoke_or_drink)) +
+  geom_bar(stat = 'identity') + 
+  scale_fill_manual(values=c("blue3", "brown2")) +
+  coord_flip() +
+  ggtitle("% of active persons that drink or smoke") +
+  labs(x="Is Active", y = "percentage", caption="Source BRFSS", fill = "Smoke or drink")
+
+
+```
+
+We can summarize that from the active persons group there are more people that smoke or drinks. Meanwhile from the non-active persons there are more people that does not smoke or drink
+
+
+**Research quesion 2:**
+Which states have less % of retired people that do not have medical insurance? 
+
+We are going to first filter for retired persons that has medical insurance information.
+
+```{r}
+retired <- brfss2013 %>% 
+  filter(employ1=='Retired',!is.na(hlthpln1)) %>%
+  group_by(X_state,hlthpln1)%>% 
+  summarize(n=n())
+
+print(retired)
+```
+
+Now we are going to calculate the percentage of uninsured by state and sort it.
+
+```{r}
+
+unins_state_percentage <- retired %>% 
+  group_by(X_state) %>% 
+  mutate(total_state=sum(n)) %>% 
+  mutate(per_uninsurance=(n/total_state) * 100) %>% 
+  filter(hlthpln1=='No') %>% 
+  select(X_state, n, total_state, per_uninsurance) %>%
+  arrange(desc(per_uninsurance))
+
+print(unins_state_percentage, n=53)
+
+
+```
+
+Finally we'll plot the the top 10 of states with more percentage of uninsured retired.
+
+```{r}
+ggplot(head(unins_state_percentage,10), aes(x=reorder(X_state, -per_uninsurance), y=per_uninsurance)) +
+  geom_col(color='aquamarine3', fill='aquamarine4') +
+  ggtitle("States with more % of uninsured retired") +
+  labs(x="State", y = "% of uninsured", caption="Source BRFSS")
+
+
+```
+
+The Guam island is an outlier in this plot. One reason could be due to sample size is being small since there are only 199 persons that live in Guam that answered that they are retired. 
+We will need a larger sample to see if this tendency is being kept.
+
+
+**Research quesion 3:**
+Is the amount of sleep related to the amount of hours a person worked? How is it different based on sex?
+
+We want to analyze if there is a relationship between the amount of hours that a person sleeps and the amount of hours that this person works. We also want to see if there is any difference based on the gender.
+
+First we will filter any row from where we don't have information about amount of hours sleep, work hours or sex and we'll run a summary for those variables.
+
+```{r}
+sleep_values <- brfss2013 %>% 
+  filter(!is.na(sleptim1), !is.na(scntwrk1), !is.na(sex))
+
+summary(sleep_values$sleptim1)
+summary(sleep_values$scntwrk1)
+summary(sleep_values$sex)
+```
+
+The median amount of hours of work hours is 40 and it is a right skewed distribution. In the case of the amount of hours slept the median is 7 hours and it is slight right skewed. There is also more women than men in our extract of the sample.
+
+We can also see that amount of hours variable has some extreme values. Even thought it is possible for a person to sleep 23 hours we'll analyze persons that sleeps less than an arbitrary value of 16 hours. 
+That is more than the 75% of observations of our sample since the third quartile is 8.
+
+```{r}
+sleep_values <- sleep_values %>% 
+  filter(sleptim1 < 16)
+```
+
+Let's check the summary of hours slept again
+
+```{r}
+summary(sleep_values$sleptim1)
+```
+
+
+```{r}
+mean_sleep_values <- sleep_values %>% 
+  group_by(scntwrk1, sex) %>% 
+  summarize(mean_sleep_hours=mean(sleptim1), n=n()) %>%
+  arrange(desc(scntwrk1))
+```
+```{r}
+ggplot(data=mean_sleep_values, aes(x=scntwrk1, y=mean_sleep_hours, colour=sex)) + 
+  geom_point(stat='identity') +
+  geom_smooth(method='lm',formula=y~x) +
+  ggtitle("Sleep time based on work hours") +
+  labs(x="Weekly work hours", y = "Average Sleep time", caption="Source BRFSS", fill = "Sex")
+
+
+```
+
+We can see a small decrease in the hours of sleep as a person works more hours. We also can see more variability on the sleep time for men comparing with women. 
+Women are more uniformly close to the average time of around 7 hours of sleep.
+
+Because of that variability men tend to sleeps more than 7 hours more often than women and also men sleep less than 7 hours more often then women. 
+
+

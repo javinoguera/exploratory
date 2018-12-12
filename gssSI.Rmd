@@ -1,0 +1,248 @@
+---
+title: "Statistical inference with the GSS data"
+author: "Javier Noguera"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+library(statsr)
+library(knitr)
+```
+
+### Load data
+
+```{r load-data}
+load("gss.Rdata")
+```
+
+```{r}
+dim(gss)
+```
+
+We have 57,061 observations and 114 columns. 
+
+
+* * *
+
+## Part 1: Data
+
+Since 1972, the General Social Survey (GSS) has been monitoring societal change and studying the growing complexity of American society. The GSS aims to gather data on contemporary American society in order to monitor and explain trends and constants in attitudes, behaviors, and attributes; to examine the structure and functioning of society in general as well as the role played by relevant subgroups; to compare the United States to other societies in order to place American society in comparative perspective and develop cross-national models of human society; and to make high-quality data easily accessible to scholars, students, policy makers, and others, with minimal cost and waiting
+
+### Sampling design
+
+The General Social Survey (GSS) is an area-probability sample that uses the NORC National Sampling Frame for an equal-probability multi-stage cluster sample of housing units for the entire United States.
+
+### Causality
+
+GSS in an observational study because data is collected only by monitoring what occurs. We can't make causal conclusions based on observational data and we can only show associations.
+
+### Generalizability
+
+The study was made using multi-stage sampling using a combination of cluster and random sampling. Also the sample size is less than the 10% of the population to suggest independence of the samples hence we can draw inference about the entire US population.
+
+### Source of bias
+
+There is a small possibility that there is a selection bias in the dataset since the survey was conducted during several years and it can happen that the same person was interviewed before.
+
+* * *
+
+## Part 2: Research question
+
+**Is political party affiliation related to generation?**
+
+We would like to see if political party belonging is related to when a person was born or if they are independent variables.
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+First we are going to filter missing values
+
+```{r}
+age_and_political_aff <- gss %>% filter(!is.na(age), !is.na(partyid), !is.na(year))
+
+```
+
+Let's see if the amount of filtered rows is too big
+
+```{r}
+nrow(age_and_political_aff)/nrow(gss) * 100
+```
+
+We can see that we have filtered a little and 99.11% of the observations of the original dataset were retained.
+
+Let's analyze the age and political affiliation distributions
+
+### Generation
+
+```{r, fig.width=10}
+age_and_political_aff <- age_and_political_aff %>% mutate(year_of_birth=year-age)
+
+ggplot(data=age_and_political_aff, aes(x=year_of_birth)) + 
+  geom_bar(stat = 'count', color='cornflowerblue') +
+  ggtitle("Year of birth") +
+  labs(x="year", y = "count", caption="Source GSS")
+
+```
+
+```{r}
+summary(age_and_political_aff$year_of_birth)
+```
+
+It is a left skewed distribution with a median of persons born in 1949. 75% of the distribution was born before 1961 and the the younger respondents were born in 1994. 
+
+Let's try to group them by generation using the following table
+
+Generation        | Years
+----------------- | ---------------
+Silent Generation | 1945 and before
+Baby Boomers      | 1946 to 1964   
+Generation X      | 1965 to 1976   
+Millennial        | 1977 to 1995   
+
+```{r}
+gen_years_breaks <- c(1882,1946,1965,1977,1994)
+gen_labels <- c('Silent Generation','Baby Boomer','Generation X','Millenial')
+age_and_political_aff <- age_and_political_aff %>% mutate(generation=cut(year_of_birth, breaks=gen_years_breaks, labels=gen_labels))
+```
+```{r}
+summary(age_and_political_aff$generation)
+
+```
+
+Now we are going to get the percentage and plot it
+
+```{r,fig.width=10}
+per_generation <- age_and_political_aff %>%
+                group_by(generation) %>% 
+                summarize(n=n()) %>% 
+                mutate(percentage=(n/sum(n))*100)
+
+kable(per_generation)
+
+ggplot(data=per_generation, aes(x=generation, y=percentage)) +
+  geom_bar(stat = 'identity', fill='aquamarine3', color='black') +
+  ggtitle("Generations") +
+  labs(x="generation", y = "count", caption="Source GSS")
+
+```
+
+As we found during the year of birth summary the majority of the sample belongs to Silent Generation and Baby Boomer with a lot less of Generation X and Millennial generations.
+
+
+### Political affiliation
+
+```{r, fig.width=10}
+ggplot(data=age_and_political_aff, aes(x=partyid)) +
+  geom_bar(fill='cadetblue3') +
+  ggtitle("Party affiliation") +
+  labs(x="Party id", y = "count", caption="Source GSS")
+  
+```
+
+```{r}
+kable(age_and_political_aff %>% group_by(partyid) %>% summarise(n=n()) %>% arrange(desc(n)))
+```
+
+We can see that the largest proportion is towards Democrats both leaning and strong supporters.
+
+
+* * *
+
+## Part 4: Inference
+
+### Hypothetis
+
+**Null hypothesis:** generation and party affiliation are independent
+
+**Alternative hypothesis:** generation and party affiliation are dependent
+
+### Method
+
+We'll conduct a chi-square test for independence between two categorical variables: generation and political affiliation.
+
+The hypothesis test will have a significance level of 0.05. 
+
+
+### Conditions
+
+Let's check the contingency table
+
+```{r}
+summary_frame <- age_and_political_aff %>% group_by(generation,partyid) %>% summarise(n=n())
+
+xtabs(n ~ generation + partyid, summary_frame) 
+```
+
+
+#### Independence
+
+Sampled observations are independent because of the sampling method used and sample size is less than 10% of the population.
+We can also notice that each case only contributes to one cell in the table.
+
+
+#### Sample Size
+
+Each particular scenario must have at least 5 expected cases. We can observe from the table that there are more than 5 cases in all the cases.
+
+
+### Inference
+
+We'll run the chi-square test using the theoretical method.
+
+Degrees of freedom:  (amount of partyid levels - 1) * (amount of generation levels - 1) = (8 - 1) * (4 - 1) = 7 * 3 = 21
+
+
+
+```{r, fig.width=10}
+inference(y=partyid, x=generation, data=age_and_political_aff,type='ht', statistic = 'proportion', method='theoretical', alternative='greater' )
+
+```
+
+First we calculated the expected values if both variables are independent (H0 is true). 
+Expected = (row total x column total)/sample size
+
+For example for the first cell is calculated this way:
+
+```{r}
+(5120+5723+2579+2764+1998+4060+2898+331)*(5120+2766+841+353)/sum(summary_frame$n)
+
+
+```
+
+
+Then chi-square value was calculated by subtracting the observed minus the expected square divided by the expected. We do this calculation for each cell and we sum them all:
+
+X^2 = (5120-4089.7328)^2/4089.7327 + (5723-5408.9870)^2/5408.9870 + ... + ... .... + (61-45.08963)^2/48 = 1586.1831
+
+
+The p_value in the probability that a chi-square statistic having 21 degrees of freedom is more extreme than 1586.1831: P(X^2 > 1586). 
+
+Since the p_value is smaller than the significance level we can reject the null hypothesis hence we can conclude that generation and political affiliation are dependent variables.
+
+From the generation and party id plot we can see that newer generation tend to be less strong partisan and more independent.
+
+We can't calculate confidence intervals for chi-square test for independence.
+
+
+
+
+
+
+##### Sources
+
+http://www.norc.org/Research/Projects/Pages/general-social-survey.aspx
+
+https://gssdataexplorer.norc.org/pages/show?page=gss%2Fstandard_error
+
+http://www.norc.org/Research/Projects/Pages/2010-national-sample-frame.aspx

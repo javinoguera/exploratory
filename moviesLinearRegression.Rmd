@@ -1,0 +1,356 @@
+---
+title: "Modeling and prediction for movies"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+library(statsr)
+library(knitr)
+
+```
+
+### Load data
+
+```{r load-data}
+load("movies.Rdata")
+```
+
+
+* * *
+
+## Part 1: Data
+
+The data set is comprised of 651 randomly sampled movies produced and released before 2016. It includes data about IMDB and Rotten tomatoes ratings.
+
+
+#### Internet Movie Database
+
+The Internet Movie Database (abbreviated IMDb) is an online database of information related to films, television programs and video games, including cast, production crew, fictional characters, biographies, plot summaries, trivia and reviews. 
+It has a searchable database of more than 185 million data items including more than 3.5 million movies, TV and entertainment programs and 7 million cast and crew members
+
+##### IMDB Ratings
+
+The site enables registered users to submit new material and edits to existing entries. Users are also invited to rate any film on a scale of 1 to 10, and the totals are converted into a weighted mean-rating that is displayed beside each title, with online filters employed to deter ballot-stuffing.
+
+
+#### Rotten Tomatoes
+
+Rotten Tomatoes is an American review aggregator website for film and television from professional critics. It also allows users to score a movie 
+
+
+##### Tomatometer
+
+The Tomatometer rating - based on the published opinions of hundreds of film and television critics - is a trusted measurement of movie and TV programming quality for millions of moviegoers.
+
+The Tomatometer rating represents the percentage of professional critic reviews that are positive for a given film or television show.
+
+
+##### Audience Score
+
+The Audience rating, denoted by a popcorn bucket, is the percentage of all Flixster.com and RottenTomatoes.com users who have rated the movie or TV Show positively.
+
+
+
+### Causality
+
+It in an observational study because data is collected only by monitoring what occurs. We can't make causal conclusions based on observational data and we can only show associations.
+
+### Generalizability
+
+Because random sampling was used and the sample size is less than the 10% of the total amount of movies we can draw inference about all the available movies.
+
+
+### Dataset info
+
+```{r}
+nrow(movies)
+hist(movies$thtr_rel_year)
+
+```
+
+There are 651 movies in this dataset we can also see that most of the movies are newer movies from 1990s going on. 
+
+```{r}
+movies %>% 
+  group_by(genre) %>%
+  summarise(n=n())
+```
+
+We can see Drama as the genre with more movies and some other genres like Science Fiction with just a few. 
+
+* * *
+
+## Part 2: Research question
+**Which movie features are related to the audience score?**
+
+We want to estimate the audience score based on movie features that are available after some days of the movie premiere. 
+Audience score, even with its biases, is a good measurement of how happy the audience is with the movie and how likely they are going to recommend it.
+Predicting the audience score early would allow studios to push more ads or early DVD release for negative movies and add more cinemas for successful ones. 
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+We are going to limit our research on feature films only. First let's see how is the distribution of the title type before filtering:
+
+```{r}
+movies %>% 
+  group_by(title_type) %>% 
+  summarise(n=n(), percentage=n()/nrow(movies))
+
+```
+
+We can see that there is an important percentage of documentary films but still after filtering we will retain around the 90,7% of the original dataset
+
+
+```{r}
+movies_filtered <- movies %>% 
+  filter(title_type=='Feature Film')
+
+```
+
+Let's check the summary of the audience score
+
+```{r}
+summary(movies_filtered$audience_score)
+
+```
+
+We can observe that it is a slightly left skewed distribution and that the mean is higher than the middle of the scale which is 50 since audience score goes from 0 to 100. That shows some biases on the audience score that makes the score higher than it should be.
+
+
+### Genre
+
+Now let's analyze if there is some relation between the movie genre and the audience score
+
+
+```{r fig.width=10}
+ggplot(movies_filtered, aes(x=genre, y=audience_score)) + 
+  geom_boxplot()
+
+```
+
+We can see some surprising results here like Musical movies have the greater median score with not a big spread.
+
+Horror movies have the lowest median audience score. Science Fiction ones have also a very low median audience score but it right skewed with some movies having high score pushing the mean up.
+Action and Adventure, Comedy and Mystery have similar medians but Action and Adventure movies have a symmetric distribution while Comedy and Mystery are right skewed. 
+
+Even being right skewed both Comedy and Mystery third quartile is less than the median of the Drama movies that means 75% of Comedy and Mystery has lower score than the 50% of Drama movies.
+
+### Running time
+
+Next we will analyze the association between the running time of the film and the audience score
+
+```{r}
+movies_filtered %>% 
+  summarise(r_squared=cor(runtime, audience_score)^2)
+```
+
+The percentage of variability of the audience score that is explained by the running time is 7% showing a moderate correlation of the running time with the score.
+
+
+```{r}
+ggplot(movies_filtered, aes(x=runtime, y=audience_score)) + 
+  geom_point(shape=1) + 
+  geom_jitter() + 
+  geom_smooth(method=lm) 
+```
+
+Most of the top scored films are around 100 minutes and less than 150 minutes.  
+
+
+* * *
+
+## Part 4: Modeling
+
+### Features
+
+We want to use features that can be available during the first days of the movie release so we'll exclude DVD release date and award nominations related features.
+Also in order to simplify we are not going to use actors or directors cause it would create categorical variables with several levels.
+
+
+Features                                | Variable name
+--------------------------------------- | ----------------
+Genre                                   | genre
+Runtime of movie (in minutes)           | runtime
+Year the movie is released in theaters  | thtr_rel_year
+Month the movie is released in theaters | thtr_rel_month
+IMDB Rating                             | imdb_rating
+IMDB number of votes                    | imdb_num_votes
+Critic Score from Rotten Tomatoes       | critics_score
+MPAA Rating                             | mpaa_rating
+
+
+
+### Model selection
+
+Based on the all features that we have will find a parsimony model with the highest adjusted R^2 using forward selection. We'll start analyzing one feature and on each step we'll select the one with highest R^2 until next step does not provide any higher R^2.
+
+
+```{r}
+
+# This function runs a linear regression based on a vector of features and returns the adjusted r^2 from the model summary
+
+do_ml <- function(features) {
+    features_str <- paste(features,collapse='+')
+    score_ml <- lm(paste("audience_score~",features_str), data=movies_filtered)
+    adjusted_r_squared <- summary(score_ml)$adj.r.squared
+    df <- data.frame(step=length(features), features=features_str, adjusted_r_squared=adjusted_r_squared)
+    return(df)
+}
+
+results <- data.frame(step=integer(), features=character(), adjusted_R_Squared=double())
+
+
+combinations <- list(c('genre'),
+                  c('runtime'),
+                  c('thtr_rel_year'),
+                  c('thtr_rel_month'),
+                  c('imdb_rating'),
+                  c('imdb_num_votes'),
+                  c('critics_score'),
+                  c('mpaa_rating'),
+                  c('imdb_rating','genre'),
+                  c('imdb_rating','runtime'),
+                  c('imdb_rating','thtr_rel_year'),
+                  c('imdb_rating','thtr_rel_month'),
+                  c('imdb_rating','imdb_num_votes'),
+                  c('imdb_rating','critics_score'),
+                  c('imdb_rating','mpaa_rating'),
+                  c('imdb_rating','genre','runtime'),
+                  c('imdb_rating','genre','thtr_rel_year'),
+                  c('imdb_rating','genre','thtr_rel_month'),
+                  c('imdb_rating','genre','imdb_num_votes'),
+                  c('imdb_rating','genre','critics_score'),
+                  c('imdb_rating','genre','mpaa_rating'),
+                  c('imdb_rating','genre','critics_score','runtime'),
+                  c('imdb_rating','genre','critics_score','thtr_rel_year'),
+                  c('imdb_rating','genre','critics_score','thtr_rel_month'),
+                  c('imdb_rating','genre','critics_score','imdb_num_votes'),
+                  c('imdb_rating','genre','critics_score','mpaa_rating'),
+                  c('imdb_rating','genre','critics_score','thtr_rel_month','runtime'),
+                  c('imdb_rating','genre','critics_score','thtr_rel_month','thtr_rel_year'),
+                  c('imdb_rating','genre','critics_score','thtr_rel_month','imdb_num_votes'),
+                  c('imdb_rating','genre','critics_score','thtr_rel_month','mpaa_rating'),
+                  c('imdb_rating','genre','critics_score','thtr_rel_month','thtr_rel_year','runtime'),
+                  c('imdb_rating','genre','critics_score','thtr_rel_month','thtr_rel_year','imdb_num_votes'),
+                  c('imdb_rating','genre','critics_score','thtr_rel_month','thtr_rel_year','mpaa_rating'),
+                  c('imdb_rating','genre','critics_score','thtr_rel_month','thtr_rel_year','imdb_num_votes','runtime'),
+                  c('imdb_rating','genre','critics_score','thtr_rel_month','thtr_rel_year','imdb_num_votes','mpaa_rating'),
+                  c('imdb_rating','genre','critics_score','thtr_rel_month','thtr_rel_year','imdb_num_votes','runtime','mpaa_rating')
+)
+
+for (combination in combinations) {
+  results <- rbind(results,do_ml(combination))
+}
+
+kable(results)
+
+```
+
+We can see that our best combination of features is imdb_rating+genre+critics_score+thtr_rel_month+thtr_rel_year+imdb_num_votes+runtime and give us an adjusted R^2 of 0.742.
+
+
+```{r}
+audience_score_ml <- lm(audience_score ~ imdb_rating + genre + critics_score + thtr_rel_month + thtr_rel_year + imdb_num_votes + runtime, data=movies_filtered)
+summary(audience_score_ml)
+
+```
+
+
+### Conditions
+
+#### Linearity
+
+```{r}
+ggplot(data=movies_filtered, aes(x=imdb_rating, y=audience_score)) + geom_point()
+ggplot(data=movies_filtered, aes(x=runtime, y=audience_score)) + geom_point()
+ggplot(data=movies_filtered, aes(x=critics_score, y=audience_score)) + geom_point()
+
+
+```
+
+We can observe that all numerical variables follows a linear relationship with the response variable.
+
+
+#### Nearly normal residuals
+
+```{r}
+hist(audience_score_ml$residuals, col='steelblue')
+
+```
+
+We observe that the residual follows a nearly normal distribution around zero although the distribution is right skewed. 
+
+#### Constant variability
+
+```{r}
+
+ggplot(data=NULL, aes(x=audience_score_ml$fitted.values, y=audience_score_ml$residuals)) + geom_point() + geom_hline(yintercept = 0, aes(color='red'))
+
+```
+
+We can see that the residuals have a constant variability that means that residuals are equally variable for any value of the response variable. Since the dataset is small we can see that are more observations around the median and less outliers.
+
+
+* * *
+
+## Part 5: Prediction
+
+We'll predict the audience score for the film Arrival
+
+Features             | Value
+-------------------- | ----------------
+Movie                | Arrival
+Genre                | Science Fiction, Drama
+Running time         | 116 minutes
+Theater release date | Nov-2016
+IMDB Rating          | 8.0
+IMDB Number of votes | 339,735
+Critic Score         | 0.93
+
+```{r}
+
+arrival_movie <- data.frame( genre='Science Fiction & Fantasy', 
+                            runtime=116, 
+                            thtr_rel_month=11, 
+                            thtr_rel_year=2016, 
+                            imdb_rating=8.0, 
+                            imdb_num_votes=339735,
+                            critics_score=0.93)
+
+
+predict(audience_score_ml, arrival_movie, interval = "prediction", level = 0.95)
+
+
+```
+
+The actual audience score for Arrival is 82% so the fit was 3% off but is inside our 95% confidence interval.
+
+* * *
+
+## Part 6: Conclusion
+
+We started discussing how the genre and the running time affected the audience score both in a moderate way. Then we started adding more features and select a model with the highest adjusted R^2 using forward selection and we noticed that It was not the one that has all the features. Finally we use the parsimony model to estimate the audience score of an unseen movie and the result was pretty close.
+
+We also noticed that the IMDB rating and Critics rating were the features that have the highest R^2 that means that if we want to create a model to estimate the audience score without taking into account any other score we would need more features that are not available in this dataset.
+
+
+
+##### Sources
+
+https://www.rottentomatoes.com/about/
+
+http://www.imdb.com/help/show_leaf?about
+
+
