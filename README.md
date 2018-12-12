@@ -1,14 +1,14 @@
 # exploratory
-Exploratory analysis for different datasets
+Exploratory analysis for different datasets:
 
-- brfssDA
+  - brfssDA
 
-Exploratory analysis of human behavior
+  Exploratory analysis of human behavior
 
-- moviesLinearRegression
+  - moviesLinearRegression
 
-Exploratory analysis and linear regression model from a movie dataset
+  Exploratory analysis and linear regression model from a movie dataset
 
-- gssSI
+  - gssSI
 
-Exploratory analysis and statistical inference from American society
+  Exploratory analysis and statistical inference from American society
